@@ -1,0 +1,31 @@
+{
+  "name": "qa-e2e-playwright-cucumber",
+  "version": "1.0.0",
+  "description": "Automatización - flujo de compra",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "scripts": {
+    "test:bdd": "cucumber-js",
+    "test:uat": "cross-env UAT_MODE=true USE_MOCK_OTP=true MOCK_OTP_URL=https://79c1f48c-8b59-48e6-8644-74493cb70301.mock.pstmn.io/otp npm run test:bdd",
+    "test:prd": "cross-env UAT_MODE=false USE_MOCK_OTP=false npm run test:bdd",
+    "test:mock": "cross-env USE_MOCK_OTP=true npm run test:bdd",
+    "test:bdd:headed": "HEADLESS=false cucumber-js",
+    "pw:trace:view": "npx playwright show-trace trace.zip"
+  },
+  "dependencies": {
+    "@cucumber/cucumber": "^12.2.0",
+    "chai": "^6.2.0",
+    "playwright": "^1.56.1"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/node": "^24.9.1",
+    "cross-env": "^10.1.0",
+    "dotenv": "^17.2.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
