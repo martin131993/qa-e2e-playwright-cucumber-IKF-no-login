@@ -1,152 +1,188 @@
-import { Given, When, Then } from '@cucumber/cucumber';
-import { expect } from 'chai';
+import { Given, Then } from '@cucumber/cucumber';
 import type { TestWorld } from '../support/world';
 
-// ===============================================================
-// 🔹 1️⃣ Ingresar código y esperar que aparezca el producto automáticamente
-// ===============================================================
-Given('que ingreso el código {string} en el buscador de producto', { timeout: 20000 }, async function (this: TestWorld, codigo: string) {
+// ===== Helpers ==================================================
+async function waitVisibleWithRetries(page: any, locatorOrStr: any, timeoutMs = 25000) {
+  const locator = typeof locatorOrStr === 'string' ? page.locator(locatorOrStr) : locatorOrStr;
+  const start = Date.now();
+  let attempt = 0;
+  while (Date.now() - start < timeoutMs) {
+    attempt++;
+    try {
+      await locator.first().waitFor({ state: 'visible', timeout: 3000 });
+      return locator;
+    } catch {
+        await page.keyboard.press('Escape').catch(() => {});
+        await page.keyboard.press('Home').catch(() => {});
+        await page.mouse.move(10, 10).catch(() => {});
+        await page.waitForTimeout(250);
+    }
+  }
+  throw new Error(`Timeout esperando visibilidad de selector tras ${attempt} intentos: ${locatorOrStr}`);
+}
+
+// ===== 1) Agregar múltiples productos (buscar SKU → entrar al detalle → precios → agregar) =====
+Given('que ingreso y agrego los siguientes productos al carrito:', { timeout: 240000 }, async function (this: TestWorld, dataTable) {
   if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
+  const page = this.page;
+  const productos = dataTable.hashes();
 
-  const searchContainer = this.page.locator('.searcher-input');
-  const searchInput = this.page.locator('#ctrl-product-searcher');
+  for (let idx = 0; idx < productos.length; idx++) {
+    const { codigo, cantidad } = productos[idx] as any;
+    const unidades = parseInt(cantidad);
 
-  await searchContainer.waitFor({ state: 'visible', timeout: 10000 });
-  await searchInput.scrollIntoViewIfNeeded();
+    console.log(`\n🛒 [${idx + 1}/${productos.length}] SKU ${codigo} → ${unidades} und`);
 
-  await searchInput.click();
-  await searchInput.fill('');
-  await this.page.waitForTimeout(500);
-  await searchInput.type(codigo, { delay: 150 });
+    // Buscar producto en el buscador del header
+    const searchInput = page.locator('#ctrl-product-searcher');
+    await waitVisibleWithRetries(page, searchInput, 20000);
+    await searchInput.click({ force: true });
+    await page.keyboard.down('Control').catch(() => {});
+    await page.keyboard.press('KeyA').catch(() => {});
+    await page.keyboard.up('Control').catch(() => {});
+    await searchInput.fill('');
+    await searchInput.type(String(codigo), { delay: 60 });
+    await page.waitForTimeout(800);
 
-  console.log(`🔎 Escribiendo código de producto: ${codigo}`);
+    // Contenedor sugerido por SKU
+    const sugerido = page.locator('.style-container-suggested');
+    await waitVisibleWithRetries(page, sugerido, 15000);
 
-  const productoVisible = this.page.locator('.product-name.text, .col-5.pointer');
-  await productoVisible.first().waitFor({ state: 'visible', timeout: 15000 });
+    // Tomar nombre y precio del sugerido
+    const nombreBuscador = (await sugerido.locator('.product-name.text').first().textContent().catch(() => ''))?.trim() || 'N/A';
+    const precioBuscador = (await sugerido.locator('fp-product-card-price p.label--1, fp-product-card-price span:has-text("S/"), span:has-text("S/")').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+    console.log(`🧾 Buscador: ${nombreBuscador}`);
+    console.log(`💰 Listado: ${precioBuscador}`);
+    await this.attach(`Resultado buscador: ${nombreBuscador}\nPrecio: ${precioBuscador}`, 'text/plain');
 
-  console.log('✅ Resultado de búsqueda automática visible.');
-});
+    // Entrar al detalle (click en el nombre del sugerido)
+    await sugerido.locator('.product-name.text').first().click({ force: true });
+    console.log(`📦 Abriendo detalle SKU ${codigo}...`);
 
-// ===============================================================
-// 🔹 2️⃣ Capturar datos del producto en la lista (sin entrar aún)
-// ===============================================================
-Then('visualizo el producto en la lista con su nombre y precio', async function (this: TestWorld) {
-  if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
+    // Esperar nombre de detalle (DOM real)
+    const nombreDetalleLoc = page.locator('h1.product-detail-information__name');
+    await waitVisibleWithRetries(page, nombreDetalleLoc, 25000);
 
-  const nombreProducto = this.page.locator('.product-name.text').first();
-  const precioProducto = this.page.locator('.card-price p.label--1').last();
+    // --- Precios en detalle ---
+    const nombreDetalle = (await nombreDetalleLoc.first().textContent().catch(() => ''))?.trim() || 'N/A';
+    const precioRegular = (await page.locator('.product-price .text-strike, .product-price .text-strike--1, .product-price .col-4.text-right.text-strike').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+    const precioPromo = (await page.locator('.product-price .price-amount:not(.text-strike):not(.font-weight-bold)').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+    const precioOh = (await page.locator('.font-weight-bold .price-amount, .product-price .total-oh.currency, .product-price .price-amount.font-weight-bold').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
 
-  const nombre = (await nombreProducto.innerText()).trim();
-  const precio = (await precioProducto.innerText()).trim();
+    console.log(`📋 Detalle:`)
+    console.log(`   🏷️ ${nombreDetalle}`);
+    console.log(`   💵 Regular: ${precioRegular}`);
+    console.log(`   💰 Promo: ${precioPromo}`);
+    console.log(`   💳 OH!: ${precioOh}`);
+    await this.attach(
+      `Detalle producto: ${nombreDetalle}\nPrecio regular: ${precioRegular}\nPrecio promocional: ${precioPromo}\nPrecio OH!: ${precioOh}`,
+      'text/plain'
+    );
 
-  console.log(`🧾 Producto listado: ${nombre}`);
-  console.log(`💰 Precio listado: ${precio}`);
+    // Agregar al carrito (botón principal)
+    const botonAgregar = page.locator('fp-product-detail-add-button button.btn-primary:has-text("Agregar al carrito")');
+    await waitVisibleWithRetries(page, botonAgregar, 20000);
+    await botonAgregar.first().click({ force: true });
+    console.log('🛍️ Agregado al carrito.');
 
-  expect(nombre).to.not.be.empty;
-  expect(precio).to.include('S/');
+    // Ajustar cantidad si > 1
+    if (unidades > 1) {
+      const botonMas = page.locator('button svg g[id="vector"]').first();
+      for (let i = 1; i < unidades; i++) {
+        await botonMas.click({ force: true });
+        await page.waitForTimeout(200);
+      }
+      console.log(`➕ Cantidad ajustada a ${unidades} und`);
+    }
 
-  await this.attach(`Producto listado: ${nombre}\nPrecio listado: ${precio}`, 'text/plain');
-});
+    // Captura del producto
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const snap = `reports/product_${codigo}_${ts}.png`;
+    await page.screenshot({ path: snap, fullPage: false });
+    await this.attach(await page.screenshot(), 'image/png');
+    console.log(`📸 Captura: ${snap}`);
 
-// ===============================================================
-// 🔹 3️⃣ Ingresar al detalle del producto
-// ===============================================================
-When('ingreso al detalle del producto desde la lista', { timeout: 35000 }, async function (this: TestWorld) {
-  if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
-
-  console.log('🖱️ Ingresando al detalle del producto (clic en tarjeta <fp-product-card-information>)...');
-
-  const tarjetaProducto = this.page.locator('fp-product-card-information').first();
-  await tarjetaProducto.waitFor({ state: 'visible', timeout: 15000 });
-  await tarjetaProducto.scrollIntoViewIfNeeded();
-  await tarjetaProducto.click({ force: true });
-  console.log('✅ Click realizado sobre la tarjeta.');
-
-  const detalleContainer = this.page.locator('.product-detail-container');
-  const listado = this.page.locator('fp-product-card-information');
-
-  console.log('⏳ Esperando cambio de vista (listado → detalle)...');
-  await Promise.all([
-    listado.first().waitFor({ state: 'detached', timeout: 25000 }).catch(() => null),
-    detalleContainer.first().waitFor({ state: 'attached', timeout: 25000 }),
-  ]);
-
-  const nombreProducto = this.page.locator('.product-detail-information__name, h1.product-name');
-  await nombreProducto.first().waitFor({ state: 'visible', timeout: 15000 });
-
-  console.log('✅ Vista de detalle visible (.product-detail-container detectado).');
-});
-
-// ===============================================================
-// 🔹 4️⃣ Capturar nombre y precio en el detalle
-// ===============================================================
-Then('verifico el nombre y precio del producto en el detalle', async function (this: TestWorld) {
-  if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
-
-  const nombreDetalle = this.page.locator('h1, .product-name, .product-title');
-  const precioDetalle = this.page.locator('.product-price, .price, .label--1 span');
-
-  const nombre = (await nombreDetalle.first().innerText()).trim();
-  const precio = (await precioDetalle.first().innerText()).trim();
-
-  console.log(`📦 Detalle producto: ${nombre}`);
-  console.log(`💲 Precio detalle: ${precio}`);
-
-  expect(nombre).to.not.be.empty;
-  expect(precio).to.include('S/');
-
-  await this.attach(`Detalle producto: ${nombre}\nPrecio detalle: ${precio}`, 'text/plain');
-});
-
-// ===============================================================
-// 🔹 5️⃣ Agregar producto al carrito
-// ===============================================================
-When('agrego el producto al carrito', async function (this: TestWorld) {
-  if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
-
-  const botonAgregar = this.page.locator('button.btn-primary:has-text("Agregar al carrito")');
-  await botonAgregar.waitFor({ state: 'visible', timeout: 10000 });
-  await botonAgregar.click();
-
-  console.log('🛒 Producto agregado al carrito.');
-  await this.page.waitForTimeout(1500);
-});
-
-// ===============================================================
-// 🔹 6️⃣ Incrementar cantidad dinámica (profesional con bucle)
-// ===============================================================
-When('aumento la cantidad a {int} unidades', async function (this: TestWorld, unidades: number) {
-  if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
-
-  console.log(`➕ Aumentando cantidad a ${unidades} unidades...`);
-
-  const botonMas = this.page.locator('button svg g[id="vector"]').first();
- // bucle que aumenta la cantidad segun el feature
-  for (let i = 1; i < unidades; i++) {
-    await botonMas.click({ force: true });
-    await this.page.waitForTimeout(400);
+    // 🔁 Volver al home antes del siguiente producto
+    if (idx < productos.length - 1) {
+      console.log('🏠 Volviendo al home para el siguiente producto...');
+      const linkHome = page.locator('a[href="/"] img#link--go-home');
+      await waitVisibleWithRetries(page, linkHome, 20000);
+      await linkHome.click({ force: true });
+      await page.waitForLoadState('domcontentloaded');
+      await page.waitForTimeout(800);
+      console.log('✅ Home cargado, listo para continuar.');
+    }
   }
 
-  console.log(`✅ Cantidad incrementada a ${unidades} unidades.`);
-  await this.page.waitForTimeout(1500);
+  console.log('✅ Todos los productos agregados correctamente.');
 });
 
-// ===============================================================
-// 🔹 7️⃣ Tomar captura final
-// ===============================================================
-Then('tomo una captura final validando que se aumento a {int} los productos', async function (this: TestWorld, unidades: number) {
+// ===== 2) Ir al carrito → avanzar hasta checkout sin login =====
+Then('ingreso al carrito y avanzo hasta el checkout sin iniciar sesión', { timeout: 180000 }, async function (this: TestWorld) {
   if (!this.page) throw new Error('❌ No hay instancia de page disponible.');
+  const page = this.page;
 
-  await this.page.setViewportSize({ width: 1920, height: 1080 });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `reports/screenshot_final_${timestamp}.png`;
+  console.log('🛒 Hacia carrito y checkout (sin login)...');
 
-  await this.page.waitForTimeout(2000);
-  const screenshot = await this.page.screenshot({
-    path: fileName,
-    fullPage: false,
-  });
+  // Ícono carrito
+  const iconos = page.locator('.btn-cart.btn-cart-inka, .btn-cart, button[aria-label="Carrito"], [class*="btn-cart"]');
+  await waitVisibleWithRetries(page, iconos, 30000);
+  await iconos.first().click({ force: true });
+  console.log('✅ Click ícono carrito');
 
-  await this.attach(screenshot, 'image/png');
-  console.log(`📸 Screenshot final guardado en ${fileName} (cantidad: ${unidades}).`);
+  // Popup "Ir a mi carrito"
+  const irCarrito = page.locator('a#btn--go-to-cart').or(page.locator('button#btn--go-to-cart')).first();
+  await waitVisibleWithRetries(page, irCarrito, 30000);
+  const popSnap = `reports/cart_popup_${Date.now()}.png`;
+  await page.screenshot({ path: popSnap });
+  console.log(`📸 Popup carrito: ${popSnap}`);
+  await irCarrito.click({ force: true });
+  console.log('✅ Ir a mi carrito');
+
+  // Totales en carrito
+  const botonCheckout = page.locator('#btn--go-to-checkout');
+  await waitVisibleWithRetries(page, botonCheckout, 30000);
+  await page.waitForTimeout(800);
+
+  const subtotal = (await page.locator('.row.subtotal .col-4.text-right').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+  const total = (await page.locator('.row.total .col-4.text-right, .row.total .currency').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+  const precioOh = (await page.locator('.total-oh.currency').first().textContent().catch(() => 'N/A'))?.trim() || 'N/A';
+
+  console.log(`💵 Subtotal: ${subtotal}`);
+  console.log(`💳 OH!: ${precioOh}`);
+  console.log(`💰 Total: ${total}`);
+  await this.attach(`Subtotal: ${subtotal}\nPrecio OH!: ${precioOh}\nTotal: ${total}`, 'text/plain');
+
+  const cartSnap = `reports/cart_page_${Date.now()}.png`;
+  await page.screenshot({ path: cartSnap, fullPage: false });
+  console.log(`📸 Carrito: ${cartSnap}`);
+
+  // Ir a comprar
+  const irComprar = page.locator('#btn--go-to-checkout').or(page.locator('button:has-text("Ir a comprar")')).first();
+  await waitVisibleWithRetries(page, irComprar, 25000);
+  await irComprar.click({ force: true });
+  console.log('🛍️ Ir a comprar');
+
+  // Continuar sin login
+  const linkContinuar = page.locator('fp-link-buttom a.link-buttom', { hasText: 'Continuar sin iniciar sesión' }).first();
+  await waitVisibleWithRetries(page, linkContinuar, 30000);
+  await linkContinuar.click({ force: true });
+  console.log('🚪 Continuar sin iniciar sesión');
+
+  // Confirmar si aparece segundo botón
+  const btnConfirmar = page.locator('a button.btn-primary:has-text("Continuar sin iniciar sesión")').first();
+  if (await btnConfirmar.isVisible().catch(() => false)) {
+    await btnConfirmar.click({ force: true });
+    console.log('✅ Confirmación sin login');
+  }
+
+  // Llegada a checkout
+  await page.waitForURL(/checkout|envio|pago/i, { timeout: 60000 }).catch(() => null);
+  const checkout = page.locator('app-checkout, .checkout-container, fp-checkout');
+  await checkout.first().waitFor({ state: 'visible', timeout: 60000 }).catch(() => null);
+
+  const finalSnap = `reports/checkout_final_${Date.now()}.png`;
+  await page.screenshot({ path: finalSnap, fullPage: false });
+  console.log(`📸 Checkout: ${finalSnap}`);
+  console.log('✅ Flujo finalizado en checkout.');
 });

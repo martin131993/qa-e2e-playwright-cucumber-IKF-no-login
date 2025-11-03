@@ -8,12 +8,12 @@ Feature: Ingreso a Inkafarma
     When espero que la página cargue completamente
     Then el título debe contener "Inkafarma"
 
-  Scenario: Flujo completo de compra sin login hasta agregar 2 unidades
-    Given que ingreso el código "036781" en el buscador de producto
-    Then visualizo el producto en la lista con su nombre y precio
-    When ingreso al detalle del producto desde la lista
-    Then verifico el nombre y precio del producto en el detalle
-    When agrego el producto al carrito
-    And aumento la cantidad a 4 unidades
-    Then tomo una captura final validando que se aumento a 4 los productos
+
+  Scenario: Agregar múltiples productos y avanzar hasta checkout
+    Given que ingreso y agrego los siguientes productos al carrito:
+      | codigo | cantidad |
+      | 072832 | 1 |
+      | 003414 | 2 |
+      | 020773 | 3 |
+    Then ingreso al carrito y avanzo hasta el checkout sin iniciar sesión
 
