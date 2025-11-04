@@ -87,7 +87,7 @@ Then('el título debe contener {string}', { timeout: 60000 }, async function (th
   // Validar título
   const title = await this.page.title();
   console.log(`🔍 Título detectado: "${title}"`);
-  expect(await this.page.url()).to.include('inkafarma.pe');
+  expect(await this.page.url()).to.include('inkafarma');
   console.log(`✅ Página validada por dominio (title dinámico: "${title}")`);
 
 

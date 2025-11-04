@@ -4,7 +4,7 @@ Feature: Ingreso a Inkafarma
 
   @smoke
   Scenario: Validar carga inicial del home de Inkafarma
-    Given que ingreso al sitio "https://inkafarma.pe/"
+    Given que ingreso al sitio "https://inkafarmaweb2-r1-uat.cindibyinkafarma.com/"
     When espero que la página cargue completamente
     Then el título debe contener "Inkafarma"
 
@@ -12,8 +12,8 @@ Feature: Ingreso a Inkafarma
   Scenario: Agregar múltiples productos y avanzar hasta checkout
     Given que ingreso y agrego los siguientes productos al carrito:
       | codigo | cantidad |
-      | 072832 | 1 |
-      | 003414 | 2 |
-      | 020773 | 3 |
+      | 025763 | 1 |
+      | 065170 | 2 |
+      | 024793 | 3 |
     Then ingreso al carrito y avanzo hasta el checkout sin iniciar sesión
 
